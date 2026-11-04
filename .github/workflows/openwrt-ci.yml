@@ -11,7 +11,7 @@ on:
   workflow_dispatch: # 仅允许手动点击按钮触发编译
     inputs:
       custom_packages:
-        description: '输入需要新增的软件包简称 (支持换行，无需 CONFIG_PACKAGE_ 前缀)'
+        description: '输入需要新增的软件包简称 (多个包请用【空格】隔开，无需 CONFIG_PACKAGE_ 前缀)'
         required: false
         type: string
 
@@ -62,30 +62,32 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ======== 严格按输入注入软件包 ========
+      # ======== 严格按输入注入软件包 (以空格分隔) ========
       - name: Inject Custom Packages
         if: ${{ github.event.inputs.custom_packages != '' }}
         run: |
-          echo "正在根据您的输入严格生成配置项..."
+          echo "正在根据您的输入生成配置项..."
           
-          # 将输入的多行文本逐行读取
-          echo "${{ github.event.inputs.custom_packages }}" | while read -r pkg || [ -n "$pkg" ]; do
-            # 去除回车符和首尾空格
-            pkg=$(echo "$pkg" | tr -d '\r' | xargs)
+          # 提取输入内容
+          INPUT_STR="${{ github.event.inputs.custom_packages }}"
+          
+          # 去除可能存在的回车符
+          CLEAN_STR=$(echo "$INPUT_STR" | tr -d '\r')
+          
+          # 按空格遍历切分好的包名
+          for pkg in $CLEAN_STR; do
+            # 去除首尾空格
+            pkg=$(echo "$pkg" | xargs)
             
-            # 跳过空行
-            if [ -z "$pkg" ]; then
-              continue
-            fi
+            if [ -z "$pkg" ]; then continue; fi
             
-            # 如果用户输入的时候带入了前缀或后缀，做个容错清理
+            # 容错清理（防止你顺手带了 CONFIG_PACKAGE_ 和 =y）
             pkg=$(echo "$pkg" | sed -e 's/^CONFIG_PACKAGE_//' -e 's/=y$//')
             
-            # 严格按照输入的名字追加配置
             echo "CONFIG_PACKAGE_${pkg}=y" >> .config
             echo "已添加: CONFIG_PACKAGE_${pkg}=y"
           done
-          echo "配置注入完成。"
+          echo "软件包注入完成。"
 
       - name: Generate configuration file
         run: make defconfig
@@ -100,6 +102,10 @@ jobs:
           echo "Space usage:"
           echo "======================="
           df -h
+          echo "======================="
+          du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
+          du -h --max-depth=1 ./build_dir
+          du -h --max-depth=1 ./bin
 
       # ======== 过滤并准备产物（只保留BE7000和BE10000） ========
       - name: Prepare artifact
